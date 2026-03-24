@@ -1,8 +1,8 @@
 {
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/$1"
+      "source": "/iot/(.*)",
+      "destination": "https://iot-playground-puce.vercel.app/iot/$1"
     },
     {
       "source": "/(.*)",
