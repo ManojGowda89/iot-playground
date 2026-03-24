@@ -18,9 +18,10 @@ const client = new MongoClient(MONGO_URI);
 await client.connect();
 
 const db = client.db(DB_NAME);
+
 setInterval(() => {
   keepAlive();
-  console.log(" Keep-alive ping sent");
+  console.log("✅ Keep-alive ping sent");
 }, 5 * 60 * 1000);
 
 console.log("✅ MongoDB connected");
@@ -29,35 +30,59 @@ console.log("✅ MongoDB connected");
 
 type AnyObject = Record<string, any>;
 
-/* ================= HELPERS ================= */
+/* ================= SMART PARSER ================= */
 
 const parseBody = async (req: Request): Promise<AnyObject> => {
   const contentType = req.headers.get("content-type") || "";
 
   try {
-    // JSON
+    /* ================= JSON ================= */
     if (contentType.includes("application/json")) {
-      return await req.json();
+      const data = await req.json();
+
+      // 🔥 If JSON contains raw string → parse it
+      if (typeof data.raw === "string") {
+        try {
+          const parsedRaw = JSON.parse(data.raw);
+          return { ...data, ...parsedRaw };
+        } catch {
+          return data;
+        }
+      }
+
+      return data;
     }
 
-    // RAW (IoT GSM / BG95)
-    if (contentType.includes("application/octet-stream")) {
-      const buffer = await req.arrayBuffer();
-      const text = new TextDecoder().decode(buffer);
+    /* ================= RAW / IoT ================= */
+    const buffer = await req.arrayBuffer();
+    const text = new TextDecoder().decode(buffer).trim();
 
-      const parsed: AnyObject = {};
-      text.split("\n").forEach(line => {
-        const [key, value] = line.split(":");
-        if (key && value) parsed[key.trim()] = value.trim();
-      });
+    // 🔥 Try parsing as JSON directly
+    try {
+      const parsed = JSON.parse(text);
+      return parsed;
+    } catch {}
 
+    // 🔥 Try key:value format
+    const parsed: AnyObject = {};
+    let isKeyValue = false;
+
+    text.split("\n").forEach(line => {
+      const [key, ...rest] = line.split(":");
+      if (key && rest.length) {
+        parsed[key.trim()] = rest.join(":").trim();
+        isKeyValue = true;
+      }
+    });
+
+    if (isKeyValue) {
       return { raw: text, ...parsed };
     }
 
-    // fallback (text/plain etc.)
-    const text = await req.text();
+    // 🔥 fallback
     return { raw: text };
-  } catch {
+  } catch (err) {
+    console.error("Parse error:", err);
     return {};
   }
 };
@@ -69,12 +94,16 @@ const server = serve({
 
   routes: {
     "/*": index,
+
     "/health": () => Response.json({ status: "ok" }),
+
     /* ================= CREATE ================= */
     "/iot/:collection": {
       async POST(req) {
         const collection = db.collection(req.params.collection);
         const body = await parseBody(req);
+
+        console.log("📥 Incoming:", body);
 
         const doc = {
           ...body,
@@ -147,14 +176,19 @@ const server = serve({
         const collection = db.collection(req.params.collection);
         const body = await parseBody(req);
 
+        // 🔥 robust deviceId detection
         const deviceId =
-          body.device_id || body.deviceId || "unknown-device";
+          body.device_id ||
+          body.deviceId ||
+          body?.raw?.device_id ||
+          "unknown-device";
 
         await collection.updateOne(
           { device_id: deviceId },
           {
             $set: {
               ...body,
+              device_id: deviceId,
               updatedAt: new Date(),
             },
           },
@@ -168,7 +202,7 @@ const server = serve({
       },
     },
   },
- 
+
   development: process.env.NODE_ENV !== "production" && {
     hmr: true,
     console: true,
