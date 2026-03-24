@@ -2,6 +2,7 @@ import { serve } from "bun";
 import { MongoClient, ObjectId } from "mongodb";
 import * as dotenv from "dotenv";
 import index from "./index.html";
+import { keepAlive } from "./job";
 
 dotenv.config();
 
@@ -17,6 +18,10 @@ const client = new MongoClient(MONGO_URI);
 await client.connect();
 
 const db = client.db(DB_NAME);
+setInterval(() => {
+  keepAlive();
+  console.log(" Keep-alive ping sent");
+}, 5 * 60 * 1000);
 
 console.log("✅ MongoDB connected");
 
@@ -64,7 +69,7 @@ const server = serve({
 
   routes: {
     "/*": index,
-
+    "/health": () => Response.json({ status: "ok" }),
     /* ================= CREATE ================= */
     "/iot/:collection": {
       async POST(req) {
@@ -163,7 +168,7 @@ const server = serve({
       },
     },
   },
-
+ 
   development: process.env.NODE_ENV !== "production" && {
     hmr: true,
     console: true,
