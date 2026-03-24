@@ -23,7 +23,7 @@ Grid,
 import CloseIcon from "@mui/icons-material/Close";
 
 // -------------------- config/types --------------------
-const BASE = "http://localhost:3000/iot" as const;
+const BASE = "/iot" as const;
 
 type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
 
